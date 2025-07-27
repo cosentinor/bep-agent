@@ -9,6 +9,7 @@ import tempfile
 from datetime import datetime
 from bep_processor import BEPProcessor
 from config import Config
+from __version__ import __version__
 
 # Page configuration
 st.set_page_config(
@@ -53,6 +54,7 @@ def main():
     # Header
     st.title("🏗️ BEP Agent")
     st.subheader("AI-Powered BIM Execution Plan Generator")
+    st.caption(f"Version {__version__}")
     
     # Sidebar for configuration and status
     with st.sidebar:

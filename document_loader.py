@@ -7,6 +7,8 @@ import os
 import re
 from typing import List, Dict, Tuple
 from docx import Document
+import PyPDF2
+import pdfplumber
 try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:
@@ -53,6 +55,57 @@ class DocumentLoader:
             
         except Exception as e:
             print(f"Error extracting text from {file_path}: {str(e)}")
+            return "", []
+
+    def extract_text_from_pdf(self, file_path: str) -> Tuple[str, List[str]]:
+        """
+        Extract text and headings from a PDF file.
+
+        Args:
+            file_path: Path to the PDF file
+
+        Returns:
+            Tuple of (full_text, headings_list)
+        """
+        try:
+            full_text = []
+            headings = []
+
+            # Try pdfplumber first (better for structured text)
+            try:
+                with pdfplumber.open(file_path) as pdf:
+                    for page_num, page in enumerate(pdf.pages):
+                        text = page.extract_text()
+                        if text:
+                            full_text.append(text)
+
+                # Join all text and extract headings
+                combined_text = "\n".join(full_text)
+                headings = self.extract_headings_from_text(combined_text)
+
+                return combined_text, headings
+
+            except Exception as e:
+                print(f"pdfplumber failed for {file_path}, trying PyPDF2: {str(e)}")
+
+                # Fallback to PyPDF2
+                full_text = []
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text = page.extract_text()
+                        if text:
+                            full_text.append(text)
+
+                combined_text = "\n".join(full_text)
+                headings = self.extract_headings_from_text(combined_text)
+
+                return combined_text, headings
+
+        except Exception as e:
+            print(f"Error extracting text from PDF {file_path}: {str(e)}")
             return "", []
     
     def extract_headings_from_text(self, text: str) -> List[str]:
@@ -108,23 +161,30 @@ class DocumentLoader:
             return documents
         
         for filename in os.listdir(Config.BEP_SAMPLES_DIR):
-            if filename.endswith('.docx') and not filename.startswith('~'):
+            if (filename.endswith('.docx') or filename.endswith('.pdf')) and not filename.startswith('~'):
                 file_path = os.path.join(Config.BEP_SAMPLES_DIR, filename)
                 print(f"Loading document: {filename}")
-                
-                text, headings = self.extract_text_from_docx(file_path)
-                
+
+                # Extract text based on file type
+                if filename.endswith('.docx'):
+                    text, headings = self.extract_text_from_docx(file_path)
+                elif filename.endswith('.pdf'):
+                    text, headings = self.extract_text_from_pdf(file_path)
+                else:
+                    continue
+
                 if text:
                     # If no headings were extracted from styles, try regex
                     if not headings:
                         headings = self.extract_headings_from_text(text)
-                    
+
                     documents.append({
                         'filename': filename,
                         'file_path': file_path,
                         'text': text,
                         'headings': headings,
-                        'word_count': len(text.split())
+                        'word_count': len(text.split()),
+                        'file_type': 'docx' if filename.endswith('.docx') else 'pdf'
                     })
                 else:
                     print(f"No text extracted from {filename}")
@@ -210,6 +270,9 @@ class DocumentLoader:
         if file_path and os.path.exists(file_path):
             if file_path.endswith('.docx'):
                 text, _ = self.extract_text_from_docx(file_path)
+                return text
+            elif file_path.endswith('.pdf'):
+                text, _ = self.extract_text_from_pdf(file_path)
                 return text
             else:
                 with open(file_path, 'r', encoding='utf-8') as f:

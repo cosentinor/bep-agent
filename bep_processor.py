@@ -92,29 +92,63 @@ class BEPProcessor:
             })
         return summaries
     
-    def analyze_project_requirements(self, project_description: str, 
-                                   requirements_file: str = None) -> Dict:
+    def analyze_project_requirements(self, project_description: str,
+                                   requirements_files: List[str] = None,
+                                   additional_bep_files: List[str] = None) -> Dict:
         """
         Analyze project requirements and find similar BEPs.
-        
+
         Args:
             project_description: Text description of the project
-            requirements_file: Optional path to requirements document
-            
+            requirements_files: Optional list of paths to requirements documents
+            additional_bep_files: Optional list of additional BEP files to include
+
         Returns:
             Analysis results dictionary
         """
         if not self.is_initialized:
             raise RuntimeError("BEP processor not initialized. Call initialize() first.")
-        
-        # Load additional requirements if file provided
+
+        # Process additional BEP files if provided
+        additional_documents = []
+        if additional_bep_files:
+            for bep_file in additional_bep_files:
+                if os.path.exists(bep_file):
+                    print(f"Processing additional BEP: {os.path.basename(bep_file)}")
+                    # Load the additional BEP document
+                    if bep_file.endswith('.docx'):
+                        text, headings = self.document_loader.extract_text_from_docx(bep_file)
+                    elif bep_file.endswith('.pdf'):
+                        text, headings = self.document_loader.extract_text_from_pdf(bep_file)
+                    else:
+                        continue
+
+                    if text:
+                        additional_documents.append({
+                            'filename': os.path.basename(bep_file),
+                            'file_path': bep_file,
+                            'text': text,
+                            'headings': headings,
+                            'word_count': len(text.split()),
+                            'file_type': 'docx' if bep_file.endswith('.docx') else 'pdf',
+                            'is_temporary': True
+                        })
+
+        # Load additional requirements if files provided
         full_requirements = project_description
-        if requirements_file and os.path.exists(requirements_file):
-            file_content = self.document_loader.load_project_requirements(
-                file_path=requirements_file
-            )
-            if file_content:
-                full_requirements = f"{project_description}\n\n{file_content}"
+        requirements_content = []
+
+        if requirements_files:
+            for req_file in requirements_files:
+                if os.path.exists(req_file):
+                    file_content = self.document_loader.load_project_requirements(
+                        file_path=req_file
+                    )
+                    if file_content:
+                        requirements_content.append(f"[From {os.path.basename(req_file)}]\n{file_content}")
+
+        if requirements_content:
+            full_requirements = f"{project_description}\n\n" + "\n\n".join(requirements_content)
         
         # Find similar plans
         similar_plans = self.vector_store.find_similar_plans(full_requirements)
@@ -127,7 +161,11 @@ class BEPProcessor:
             'full_requirements': full_requirements,
             'similar_plans': similar_plans,
             'relevant_chunks': relevant_chunks,
-            'requirements_file': requirements_file
+            'requirements_files': requirements_files or [],
+            'additional_bep_files': additional_bep_files or [],
+            'additional_documents': additional_documents,
+            'requirements_count': len(requirements_files) if requirements_files else 0,
+            'additional_bep_count': len(additional_documents)
         }
     
     def generate_bep_outline(self, analysis_results: Dict, 
@@ -262,6 +300,108 @@ class BEPProcessor:
             bep_data["sections"].append(section)
         
         return json.dumps(bep_data, indent=2)
+
+    def export_bep_docx(self, outline: List[str], content: Dict[str, str],
+                       analysis_results: Dict, project_name: str = "New Project",
+                       template_path: str = None, output_path: str = None) -> str:
+        """
+        Export BEP as DOCX format using template.
+
+        Args:
+            outline: List of section headings
+            content: Dictionary mapping headings to content
+            analysis_results: Analysis results for metadata
+            project_name: Name of the project
+            template_path: Path to DOCX template (optional)
+            output_path: Path for output DOCX file (optional)
+
+        Returns:
+            Path to created DOCX file
+        """
+        try:
+            from docx_writer import DOCXWriter
+            import tempfile
+            import json
+            from datetime import datetime
+
+            # Create JSON data for template replacement
+            bep_data = {
+                "Project_Name": project_name,
+                "Generated_Date": datetime.now().strftime("%Y-%m-%d"),
+                "Generated_By": "BEP Agent - Atkinsrealis",
+                "Version": "1.3.0"
+            }
+
+            # Add section content
+            for i, heading in enumerate(outline, 1):
+                section_key = f"Section_{i}_Title"
+                content_key = f"Section_{i}_Content"
+                bep_data[section_key] = heading
+                bep_data[content_key] = content.get(heading, "Content to be developed.")
+
+            # Add analysis metadata
+            if analysis_results.get('similar_plans'):
+                similar_plans = [plan[0] for plan in analysis_results['similar_plans'][:3]]
+                bep_data["Similar_Plans"] = ", ".join(similar_plans)
+
+            # Create temporary JSON file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_json:
+                json.dump(bep_data, temp_json, indent=2)
+                temp_json_path = temp_json.name
+
+            # Set output path if not provided
+            if not output_path:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = f"BEP_{project_name.replace(' ', '_')}_{timestamp}.docx"
+
+            # Use template if provided, otherwise create basic document
+            if template_path and os.path.exists(template_path):
+                writer = DOCXWriter()
+                writer.process_document(template_path, temp_json_path, output_path)
+            else:
+                # Create basic DOCX if no template provided
+                self._create_basic_docx(bep_data, output_path)
+
+            # Clean up temporary file
+            os.unlink(temp_json_path)
+
+            return output_path
+
+        except Exception as e:
+            print(f"Error exporting DOCX: {str(e)}")
+            return None
+
+    def _create_basic_docx(self, data: Dict, output_path: str) -> None:
+        """Create a basic DOCX document without template."""
+        from docx import Document
+        from docx.shared import Inches
+
+        doc = Document()
+
+        # Add title
+        title = doc.add_heading(f"BIM Execution Plan - {data.get('Project_Name', 'New Project')}", 0)
+
+        # Add metadata
+        doc.add_paragraph(f"Generated: {data.get('Generated_Date', '')}")
+        doc.add_paragraph(f"Generated by: {data.get('Generated_By', '')}")
+        doc.add_paragraph("")
+
+        # Add sections
+        section_num = 1
+        while f"Section_{section_num}_Title" in data:
+            title_key = f"Section_{section_num}_Title"
+            content_key = f"Section_{section_num}_Content"
+
+            # Add section heading
+            doc.add_heading(f"{section_num}. {data[title_key]}", level=1)
+
+            # Add section content
+            doc.add_paragraph(data[content_key])
+            doc.add_paragraph("")  # Add spacing
+
+            section_num += 1
+
+        doc.save(output_path)
     
     def get_processing_stats(self) -> Dict:
         """

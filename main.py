@@ -10,14 +10,23 @@ from datetime import datetime
 from bep_processor import BEPProcessor
 from config import Config
 from __version__ import __version__
+from ui_styling import (
+    load_atkinsrealis_styling,
+    create_atkinsrealis_header,
+    create_atkinsrealis_card,
+    create_atkinsrealis_footer
+)
 
 # Page configuration
 st.set_page_config(
-    page_title="BEP Agent - BIM Execution Plan Generator",
+    page_title="BEP Agent - Atkinsrealis BIM Execution Plan Generator",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Load Atkinsrealis custom styling
+load_atkinsrealis_styling()
 
 # Initialize session state
 if 'processor' not in st.session_state:
@@ -51,10 +60,12 @@ def initialize_processor():
 def main():
     """Main application function."""
     
-    # Header
-    st.title("🏗️ BEP Agent")
-    st.subheader("AI-Powered BIM Execution Plan Generator")
-    st.caption(f"Version {__version__}")
+    # Custom Atkinsrealis Header
+    create_atkinsrealis_header(
+        title="BEP Agent",
+        subtitle="AI-Powered BIM Execution Plan Generator",
+        version=__version__
+    )
     
     # Sidebar for configuration and status
     with st.sidebar:
@@ -96,13 +107,15 @@ def main():
         # Show sample documents info
         st.subheader("📁 Sample Documents")
         if os.path.exists(Config.BEP_SAMPLES_DIR):
-            sample_files = [f for f in os.listdir(Config.BEP_SAMPLES_DIR) if f.endswith('.docx')]
+            sample_files = [f for f in os.listdir(Config.BEP_SAMPLES_DIR)
+                           if f.endswith('.docx') or f.endswith('.pdf')]
             if sample_files:
                 st.write(f"Found {len(sample_files)} sample BEP documents:")
                 for file in sample_files:
-                    st.write(f"- {file}")
+                    file_type = "📄 PDF" if file.endswith('.pdf') else "📝 DOCX"
+                    st.write(f"- {file_type} {file}")
             else:
-                st.warning("No sample BEP documents found. Please add .docx files to the data/bep_samples directory.")
+                st.warning("No sample BEP documents found. Please add .docx or .pdf files to the data/bep_samples directory.")
         else:
             st.warning("Sample documents directory not found.")
         
@@ -122,12 +135,24 @@ def main():
             help="Provide a detailed description of your project to get the most relevant BEP recommendations."
         )
         
-        # Optional requirements file upload
-        st.subheader("Additional Requirements (Optional)")
-        uploaded_file = st.file_uploader(
-            "Upload Requirements Document",
-            type=['docx', 'txt'],
-            help="Upload an RFP, EIR, or other requirements document for additional context."
+        # Project requirements - both text and file upload
+        st.subheader("Project Requirements")
+
+        # Multiple file upload for requirements
+        uploaded_files = st.file_uploader(
+            "Upload Requirements Documents (Optional)",
+            type=['docx', 'pdf', 'txt'],
+            accept_multiple_files=True,
+            help="Upload RFP, EIR, or other requirements documents. You can upload multiple files."
+        )
+
+        # Additional BEP samples upload
+        st.subheader("Additional BEP Samples (Optional)")
+        uploaded_bep_samples = st.file_uploader(
+            "Upload Additional BEP Documents",
+            type=['docx', 'pdf'],
+            accept_multiple_files=True,
+            help="Upload additional BEP documents to improve analysis. These will be temporarily added to your sample library."
         )
         
         # Process requirements
@@ -135,23 +160,33 @@ def main():
             if project_description.strip():
                 with st.spinner("Analyzing project requirements..."):
                     try:
-                        # Handle uploaded file
-                        requirements_file = None
-                        if uploaded_file:
-                            # Save uploaded file temporarily
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
-                                tmp_file.write(uploaded_file.getvalue())
-                                requirements_file = tmp_file.name
+                        # Handle uploaded files (multiple)
+                        requirements_files = []
+                        if uploaded_files:
+                            for uploaded_file in uploaded_files:
+                                # Save uploaded file temporarily
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+                                    tmp_file.write(uploaded_file.getvalue())
+                                    requirements_files.append(tmp_file.name)
+
+                        # Handle additional BEP samples
+                        additional_bep_files = []
+                        if uploaded_bep_samples:
+                            for bep_file in uploaded_bep_samples:
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{bep_file.name.split('.')[-1]}") as tmp_file:
+                                    tmp_file.write(bep_file.getvalue())
+                                    additional_bep_files.append(tmp_file.name)
                         
                         # Analyze requirements
                         analysis_results = st.session_state.processor.analyze_project_requirements(
-                            project_description, requirements_file
+                            project_description, requirements_files, additional_bep_files
                         )
                         st.session_state.analysis_results = analysis_results
-                        
-                        # Clean up temporary file
-                        if requirements_file and os.path.exists(requirements_file):
-                            os.unlink(requirements_file)
+
+                        # Clean up temporary files
+                        for temp_file in requirements_files + additional_bep_files:
+                            if temp_file and os.path.exists(temp_file):
+                                os.unlink(temp_file)
                         
                         st.success("✅ Project requirements analyzed successfully!")
                         st.info("👉 Check the Analysis tab to see results.")
@@ -164,7 +199,25 @@ def main():
         
         if st.session_state.analysis_results:
             results = st.session_state.analysis_results
-            
+
+            # Show uploaded files summary
+            if results.get('requirements_count', 0) > 0 or results.get('additional_bep_count', 0) > 0:
+                st.subheader("📁 Uploaded Files Summary")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if results.get('requirements_count', 0) > 0:
+                        st.metric("Requirements Documents", results['requirements_count'])
+                with col2:
+                    if results.get('additional_bep_count', 0) > 0:
+                        st.metric("Additional BEP Samples", results['additional_bep_count'])
+
+                # Show additional BEP documents if any
+                if results.get('additional_documents'):
+                    with st.expander("📋 Additional BEP Documents Processed"):
+                        for doc in results['additional_documents']:
+                            file_type = "📄 PDF" if doc['file_type'] == 'pdf' else "📝 DOCX"
+                            st.write(f"- {file_type} **{doc['filename']}** ({doc['word_count']} words, {len(doc['headings'])} headings)")
+
             # Similar plans
             st.subheader("🎯 Most Similar BEP Plans")
             similar_plans = results['similar_plans']
@@ -261,8 +314,8 @@ def main():
             
             # Export options
             st.subheader("💾 Export Options")
-            
-            col1, col2 = st.columns(2)
+
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 # Markdown export
@@ -292,19 +345,51 @@ def main():
                         st.session_state.analysis_results,
                         project_name
                     )
-                    
+
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename = f"BEP_{project_name.replace(' ', '_')}_{timestamp}.json"
-                    
+
                     st.download_button(
                         label="📥 Download JSON",
                         data=json_content,
                         file_name=filename,
                         mime="application/json"
                     )
+
+            with col3:
+                # DOCX export
+                if st.button("📄 Export as DOCX"):
+                    try:
+                        docx_path = st.session_state.processor.export_bep_docx(
+                            st.session_state.outline,
+                            st.session_state.bep_content,
+                            st.session_state.analysis_results,
+                            project_name
+                        )
+
+                        if docx_path and os.path.exists(docx_path):
+                            with open(docx_path, 'rb') as f:
+                                docx_data = f.read()
+
+                            st.download_button(
+                                label="📥 Download DOCX",
+                                data=docx_data,
+                                file_name=os.path.basename(docx_path),
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            )
+
+                            # Clean up temporary file
+                            os.unlink(docx_path)
+                            st.success("✅ DOCX file generated successfully!")
+                        else:
+                            st.error("❌ Failed to generate DOCX file")
+                    except Exception as e:
+                        st.error(f"❌ Error generating DOCX: {str(e)}")
         else:
             st.info("👈 Please generate BEP content first.")
-
+    
+    # Atkinsrealis Footer
+    create_atkinsrealis_footer()
 if __name__ == "__main__":
     # Auto-initialize on startup
     if st.session_state.processor is None:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bep-agent"
-version = "1.3.0"
+version = "1.4.0"
 description = "AI-Powered BIM Execution Plan Generator"
 readme = "README.md"
 authors = [
@@ -21,7 +21,11 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Office/Business",
 ]
+keywords = ["bim", "bep", "document-processing", "outline", "ai"]
 requires-python = ">=3.8"
 dependencies = [
     "openai>=1.0.0",
@@ -29,6 +33,7 @@ dependencies = [
     "langchain-text-splitters>=0.0.1",
     "sentence-transformers>=2.2.2",
     "python-docx==1.1.0",
+    "PyMuPDF>=1.23.0",
     "streamlit>=1.28.0",
     "python-dotenv>=1.0.0",
     "numpy>=1.24.0",
@@ -45,18 +50,20 @@ Documentation = "https://github.com/cosentinor/bep-agent/blob/main/README.md"
 
 [project.scripts]
 docx_writer = "docx_writer:cli"
-
+bep-agent = "main:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "black>=22.0.0",
-    "flake8>=5.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
     "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
 ]
 test = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
 ]
 
 [tool.setuptools.packages.find]
